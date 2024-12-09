@@ -1,0 +1,24 @@
+> ci / stepsTree -v
+> beforeCiSpec
+> ci -v
+$ must-mirror target/ci-status.html ci-status.html
+$ exists ci-reports/root.html
+$ exists ci-reports/bar.html
+> ci / stepsTree -s
+> afterCiSpec
+
+> runOnceCommandSpec
+> rootSpec
+> fooSpec
+> barSpec
+> resetScalaVersionSpec
+
+# aggregate setting should be honored in commands
+> clean
+> set foo / ci / steps := Nil
+> set bar / ci / steps := Nil
+> set ci / steps := Seq("compileCommand")
+> ci
+> aggregateCommandSpec
+# test short option ordering (-vs -sv etc)
+> ci / stepsTree -vs

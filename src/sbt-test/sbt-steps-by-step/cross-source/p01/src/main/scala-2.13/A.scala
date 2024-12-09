@@ -1,0 +1,2 @@
+bad syntax
+class A {}

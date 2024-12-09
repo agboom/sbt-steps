@@ -1,0 +1,9 @@
+> ci / stepsTree
+
+> ci
+$ must-mirror target/ci-status.html ci-status.html
+
+# test short option ordering (-vs -sv etc)
+> ci / stepsTree -sv
+
+> afterCiSpec

@@ -1,0 +1,4 @@
+
+class BadClass {
+  bad syntax
+}

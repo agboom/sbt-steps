@@ -1,0 +1,12 @@
+-> ci
+$ must-mirror target/ci-status.html ci-status.html
+> ci / stepsTree -s
+> ciStepsStatusSpec
+
+# continue on error steps should have a failure end result
+> clean
+> set every ci / steps := (Compile / compile).continueOnError :: Nil
+> ci / stepsTree
+# test if CI is marked as failed
+-> ci
+> ci / stepsTree -s

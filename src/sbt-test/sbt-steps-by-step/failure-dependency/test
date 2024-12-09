@@ -1,0 +1,6 @@
+-> ci
+> ciStepsStatusReportSpec
+> noPublishSpec
+
+> ci / stepsTree -s
+> ciStepsStatusSpec

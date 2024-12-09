@@ -1,0 +1,11 @@
+> ci / stepsTree
+> ciSpec
+> ci
+$ must-mirror target/ci-status.html ci-status.html
+> afterCiSpec
+
+> custom / stepsTree
+> customSpec
+> custom
+$ must-mirror target/custom-status.html custom-status.html
+> afterCustomSpec

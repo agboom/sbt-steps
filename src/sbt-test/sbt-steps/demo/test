@@ -1,0 +1,5 @@
+# example project for the purpose of the readme demo
+> ci/stepsTree -v
+-> ci
+> ci/stepsTree -s
+> ci/stepsStatusReport -v -

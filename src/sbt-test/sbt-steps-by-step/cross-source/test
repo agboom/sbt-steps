@@ -1,0 +1,5 @@
+# test inspired by https://github.com/sbt/sbt/issues/3143
+# use to test memory usage
+-> ci
+> ci / stepsTree -sv
+> ciStepsStatusSpec
