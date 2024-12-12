@@ -8,24 +8,31 @@ Actions or any other CI environment.
 
 Here are two report examples after running `ci` using `CIStepsPlugin`:
 
-<table>
+<table align=left>
   <tr>
     <td><b>HTML report</b></td>
-    <td><b>ASCII report</b></td>
   </tr>
   <tr valign=top>
-    <td>
+    <td height=460>
       <p><code><b>sbt:root> ci/stepsStatusReport -</b></code></p>
       <sup>
-        <table><tr height=30><td colspan=5 width=400>(<b><code>+Test / test</code></b>) Cross test</td></tr><tr height=30><td title="succeeded" width=40>:white_check_mark:</td><td colspan=2><code>+bar / Test / test</code></td></tr><tr height=30><td title="succeeded" width=40>:white_check_mark:</td><td colspan=2><code>+foo / Test / test</code></td></tr><tr height=30><td title="succeeded" width=40>:white_check_mark:</td><td colspan=2><code>+root / Test / test</code></td></tr><tr height=30><td colspan=5 width=400>(<b><code>+publishLocal</code></b>) Cross publish</td></tr><tr height=30><td title="succeeded" width=40>:white_check_mark:</td><td colspan=2><code>+bar / publishLocal</code></td></tr><tr height=30><td></td><td width=40>:green_circle:</td><td>Successfully published bar <code>0.1.0-SNAPSHOT</code></td></tr><tr height=30><td title="succeeded" width=40>:white_check_mark:</td><td colspan=2><code>+foo / publishLocal</code></td></tr><tr height=30><td></td><td width=40>:green_circle:</td><td>Successfully published foo <code>0.1.0-SNAPSHOT</code></td></tr><tr height=30><td title="skipped" width=40>:white_large_square:</td><td colspan=2><code>+root / publishLocal</code></td></tr><tr height=30><td></td><td width=40>:white_circle:</td><td><code>publishLocal / skip</code> is set to true</td></tr><tr height=30><td colspan=5 width=400>(<b><code>Compile / unidoc</code></b>) Generate unified Scaladoc</td></tr><tr height=30><td title="failed" width=40>:red_square:</td><td colspan=2><code>root / Compile / unidoc</code></td></tr><tr height=30><td></td><td width=40>:x:</td><td>(<code>Scalaunidoc / doc</code>) Scaladoc generation failed</td></tr></table>
-      </sup>
-    </td>
-    <td>
-      <p><code><b>sbt:root> ci/stepsTree --status</b></code></p>
-      <img alt="steps tree" src="docs/stepstree.png" />
+        <table><tr height=30><td colspan=5 width=400>(<b><code>+Test / test</code></b>) Cross test</td></tr><tr height=30><td title="succeeded" width=40>:white_check_mark:</td><td colspan=2><code>+bar / Test / test</code></td></tr><tr height=30><td title="succeeded" width=40>:white_check_mark:</td><td colspan=2><code>+foo / Test / test</code></td></tr><tr height=30><td title="succeeded" width=40>:white_check_mark:</td><td colspan=2><code>+root / Test / test</code></td></tr><tr height=30><td colspan=5 width=400>(<b><code>+publishLocal</code></b>) Cross publish</td></tr><tr height=30><td title="succeeded" width=40>:white_check_mark:</td><td colspan=2><code>+bar / publishLocal</code></td></tr><tr height=30><td></td><td width=40>:green_circle:</td><td>Successfully published bar <code>0.1.0-SNAPSHOT</code></td></tr><tr height=30><td title="succeeded" width=40>:white_check_mark:</td><td colspan=2><code>+foo / publishLocal</code></td></tr><tr height=30><td></td><td width=40>:green_circle:</td><td>Successfully published foo <code>0.1.0-SNAPSHOT</code></td></tr><tr height=30><td title="skipped" width=40>:white_large_square:</td><td colspan=2><code>+root / publishLocal</code></td></tr><tr height=30><td></td><td width=40>:white_circle:</td><td><code>publishLocal / skip</code> is set to true</td></tr><tr height=30><td colspan=5 width=400>(<b><code>Compile / unidoc</code></b>) Generate unified Scaladoc</td></tr><tr height=30><td title="failed" width=40>:red_square:</td><td colspan=2><code>root / Compile / unidoc</code></td></tr><tr height=30><td></td><td width=40>:x:</td><td>(<code>Scalaunidoc / doc</code>) Scaladoc generation failed</td></tr></table>  
+    </sup>
     </td>
   </tr>
 </table>
+<table align=left>
+  <tr>
+    <td><b>ASCII report</b></td>
+  </tr>
+  <tr valign=top>
+    <td height=460>
+      <p><code><b>sbt:root> ci/stepsTree --status</b></code></p>
+      <img alt="steps tree" src="docs/stepstree.png" width=370 />
+    </td>
+  </tr>
+</table>
+<br clear=left />
 
 > [!NOTE]
 > See the [demo scripted test] for the `build.sbt` of these examples. Run `sbt scripted
