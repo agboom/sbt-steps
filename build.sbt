@@ -1,3 +1,5 @@
+import com.typesafe.tools.mima.core.*
+
 lazy val user = "agboom"
 lazy val repo = "sbt-steps"
 inThisBuild(Seq(
@@ -25,6 +27,7 @@ inThisBuild(Seq(
   scriptedBufferLog := false,
   versionScheme := Some(VersionScheme.SemVerSpec),
   scalacOptions := Settings.compilerOptions,
+  versionPolicyIgnoredInternalDependencyVersions := Some("^\\d+\\.\\d+\\.\\d+\\+\\d+".r),
 ))
 
 lazy val sbtSteps = project.in(file("."))
@@ -36,6 +39,8 @@ lazy val sbtSteps = project.in(file("."))
       sbtTestkit / publishLocal,
       publishLocal,
     ).dependOn.value,
+    // internal package does not have compatibility guarantees, so we exclude it
+    mimaBinaryIssueFilters += ProblemFilters.exclude[Problem]("sbtsteps.internal.*"),
     // https://github.com/sbt/sbt-pgp/issues/170
     pgpSigningKey := Credentials
       .forHost(credentials.value, organization.value)
