@@ -766,7 +766,10 @@ object StepsUtils {
           Inc(inc)
         },
       inputTask => {
-        Parser.parse(s" $input", inputTask.parser(state)) match {
+        // only add a leading space if there there is nonempty input
+        // otherwise parsing may fail incorrectly
+        val sanitizedInput = if (input.isEmpty) "" else s" $input"
+        Parser.parse(sanitizedInput, inputTask.parser(state)) match {
           case Right(task) =>
             task.result
           case Left(msg) =>
