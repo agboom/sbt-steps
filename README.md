@@ -73,7 +73,7 @@ See the [plugin development docs][create-steps-plugin].
 
 The `ci` task is central to `CIStepsPlugin`. It runs the configured `ci/steps` for all
 subprojects in the build definition. All settings and tasks from `StepsPlugin`, like
-`stepsTree` and `statusReport`, are scoped in this task.
+`stepsTree` and `stepsStatusReport`, are scoped in this task.
 
 ### From the sbt shell
 
@@ -103,7 +103,7 @@ completed status. A status optionally has a message, such as:
 A detailed HTML report is created during `ci` that you can use as a job summary in [GitHub
 Actions](#use-with-github-actions) or any CI that accepts Markdown or HTML. By default the
 report is written to `target/ci-status.html`. At any time you can also write a report to
-file or stdout with `ci/statusReport`.
+file or stdout with `ci/stepsStatusReport`.
 
 To include skipped steps and more information in the report, pass the `--verbose` or `-v`
 flag, e.g. `ci -v` or `ci/stepsTree -v`.
@@ -332,7 +332,7 @@ sbt:root> ci/stepsTree
 > For performance reasons, cross build steps mimic sbt cross build aggregation. This means
 > that for each cross Scala version, all project tasks are run before going to the next
 > cross Scala version. In the example above, this results the following order: `++ 3.3.4;
-> root/test; foo/test; ++ 2.13.15; root/test; foo/test`. This behavior may lead to
+> foo/test; root/test; ++ 2.13.15; foo/test; root/test`. This behavior may lead to
 > incomplete steps when its subsequent step has failed, which can be confusing. Even
 > though this is the intended behavior, we may need to look into making this more clear.
 > [This scripted test] can be used to test the performance limits.
@@ -355,6 +355,11 @@ lazy val foo = (project in file("."))
 ```
 
 If the input fails to parse, an error is shown in the step status when running `ci`.
+
+> [!NOTE]
+> Without invoking `withInput` the input is left empty. This will succeed only if the
+> task's parser supports empty input. A leading space is not needed for inputs, because
+> it's automatically added.
 
 ### Use command steps
 
@@ -477,8 +482,10 @@ Note the absence of `coverageOn` and `coverageOff` for project foo, because of t
 ### Declare a step to run only once
 
 In some cases you want a step to be run only once in the entire build. To achieve this,
-use the `.once` combinator. Its dual is `.whenever`. For example, the following steps will
-run the `authenticate` task only once for the root project:
+use the `.once` combinator. Its dual is `.whenever`. This is slightly different from a
+[project filter](#set-project-filters-on-a-step), because the task will be run at the
+first opportunity, instead of a specific project. For example, the following steps will
+run the `authenticate` task only once:
 
 ```sbt
 ThisBuild / ci / steps := Seq(
@@ -505,7 +512,7 @@ sbt:root> ci/stepsTree
 [info]   +-run once: true
 [info]   +-project filter: LocalRootProject
 [info]   +-project steps:
-[info]     +-task: authenticate
+[info]     +-task: foo / authenticate
 [info] 
 [info] task: +publish
 [info]   +-cross build: true
