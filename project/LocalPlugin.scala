@@ -7,8 +7,7 @@ import xerial.sbt.Sonatype
 /** Release and version policy process adapted from
   * [sbt-version-policy](https://github.com/scalacenter/sbt-version-policy/blob/main/sbt-version-policy/src/sbt-test/sbt-version-policy/example-sbt-release/build.sbt)
   * example. Instead of keeping a version in version.sbt, it is automatically
-  * derived from the version policy intention. As a bonus, the CHANGELOG.md file
-  * is automatically updated with the release version.
+  * derived from the version policy intention.
   */
 object LocalPlugin extends AutoPlugin {
   object autoImport {
@@ -16,10 +15,6 @@ object LocalPlugin extends AutoPlugin {
       taskKey[Unit](
         "Set versionPolicyIntention to Compatibility.BinaryAndSourceCompatible, and commit the change",
       )
-
-    lazy val setVersionInChangelog =
-      taskKey[Unit]("Set value of version in CHANGELOG.md")
-
   }
 
   import autoImport.*
@@ -44,22 +39,17 @@ object LocalPlugin extends AutoPlugin {
     // configure releaseVersion to bump the patch, minor, or major version number according
     // to the versionPolicyIntention setting in compatibility.sbt.
     releaseVersion := fromCompatibility(versionPolicyIntention.value),
-    // normally version.sbt, but now we use it to auto commit the release version in the changelog
-    releaseVersionFile := baseDirectory.value / "CHANGELOG.md",
     releaseCommitMessage := s"Releasing v${version.value}",
     // custom release process: run `versionCheck` after we have set the release version, and
     // reset compatibility intention to `Compatibility.BinaryAndSourceCompatible` after the release.
     releaseProcess := Seq[ReleaseStep](
       releaseStepCommand("release-vcs-checks"),
       checkSnapshotDependencies,
-      checkChangelog,
       inquireAndSetReleaseVersion,
       releaseStepCommand("versionCheck"),
       runClean,
       runTest,
       releaseStepInputTask(scripted),
-      releaseStepTask(setVersionInChangelog),
-      commitReleaseVersion,
       tagRelease,
       releaseStepCommand("publishSigned"),
       releaseStepTask(resetCompatibilityIntention),
@@ -97,37 +87,6 @@ object LocalPlugin extends AutoPlugin {
           gitCommitExitValue == 0,
           s"Command failed with exit status $gitCommitExitValue",
         )
-      }
-    },
-    setVersionInChangelog / aggregate := false,
-    setVersionInChangelog := {
-      val changelogFile = releaseVersionFile.value
-      val releaseVersion = version.value
-      val lines = IO.readLines(changelogFile)
-
-      lazy val newChangelogLines = List(
-        "## [Unreleased]",
-        "### Added|Changed|Removed|Fixed",
-        "- ",
-        "",
-        s"## [$releaseVersion]",
-      )
-
-      val idx = lines.indexWhere(_.toLowerCase.contains(unreleasedSubstr))
-
-      streams.value.log.info(
-        s"Updating ${changelogFile.name} with version [$releaseVersion]...",
-      )
-
-      lines.lift(idx) match {
-        case Some(_) =>
-          val newLines =
-            lines.take(idx) ++ newChangelogLines ++ lines.drop(idx + 1)
-          IO.writeLines(changelogFile, newLines, append = false)
-        case _ =>
-          sys.error(
-            s"""No line matching "$unreleasedSubstr" in ${changelogFile.name}""",
-          )
       }
     },
   )
@@ -193,30 +152,5 @@ object LocalPlugin extends AutoPlugin {
       st.get(ReleaseKeys.commandLineReleaseVersion).flatten,
     )
     reapply(Seq(version := releaseV), st)
-  }
-
-  lazy val unreleasedSubstr = "## [unreleased]"
-
-  /** Check changelog early so that we don't have to re-run all tests
-    * unnecessarily.
-    */
-  lazy val checkChangelog: ReleaseStep = { st: State =>
-    import scala.collection.JavaConverters.*
-    val extracted = Project.extract(st)
-    val changelogFile = extracted.get(releaseVersionFile)
-    val lines = IO.readLines(changelogFile)
-    val goodChangelog = IO.reader(changelogFile) { buffer =>
-      buffer.lines.iterator.asScala.exists(
-        _.toLowerCase.contains(unreleasedSubstr),
-      )
-    }
-    if (goodChangelog) {
-      st.log.info(s"${changelogFile.name} OK")
-    } else {
-      sys.error(
-        s"""No line matching "$unreleasedSubstr" in ${changelogFile.name}""",
-      )
-    }
-    st
   }
 }
