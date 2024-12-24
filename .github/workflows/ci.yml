@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [ $default_branch ]
+  pull_request:
+    branches: [ $default_branch ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          show-progress: false
+      - name: Commits check
+        id: commits-check
+        shell: bash
+        run: |
+          case "${{ github.event_name }}" in
+            push)
+              oldrev="${{ github.event.base_ref }}"
+              newrev="${{ github.event.after }}"
+              ;;
+            pull_request)
+              oldrev="${{ github.event.pull_request.base.ref }}"
+              newrev="${{ github.event.pull_request.head.ref }}"
+              ;;
+            *)
+              echo "Unsupported workflow event"
+              exit 0
+              ;;
+          esac
+          echo "REPORT=$(${{ github.workspace }}/.github/workflows/conventional-commits $oldrev $newrev)" >> "$GITHUB_OUTPUT"
+      - name: Submit summary
+        # try to create a summary on success or failure, but not on cancelled
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          if [[ -n "${{ steps.commits-check.outputs.REPORT }}" ]]; then
+            echo "## Commits check report"
+            echo "${{ steps.commits-check.outputs.REPORT }}" >> $GITHUB_STEP_SUMMARY
+          fi
+
+

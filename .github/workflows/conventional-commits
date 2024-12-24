@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+
+# Adapted from https://gist.github.com/qoomon/5dfcdf8eec66a051ecd85625518cfd13
+# Script that checks commits messages against the Conventional Commits standard
+# https://www.conventionalcommits.org/en/v1.0.0/
+
+oldrev=${1:-$OLDREV}
+newrev=${2:-$NEWREV}
+
+if [[ -z $oldrev || -z $newrev ]]; then
+  echo "Usage: $0 <oldrev> <newrev>"
+  exit 1
+fi
+
+commit_msg_type_regex='feat|fix|refactor|style|test|docs|build|ci'
+commit_msg_scope_regex='.{1,20}'
+commit_msg_description_regex='.{1,100}'
+commit_msg_regex="^(${commit_msg_type_regex})(\(${commit_msg_scope_regex}\))?: (${commit_msg_description_regex})\$"
+merge_msg_regex="^Merge branch '.+'\$"
+
+zero_commit="0000000000000000000000000000000000000000"
+
+error=""
+# branch or tag get deleted
+if [ "$newrev" = "$zero_commit" ]; then
+  continue
+fi
+
+# Check for new branch or tag
+if [ "$oldrev" = "$zero_commit" ]; then
+  rev_span=`git rev-list $newrev`
+else
+  rev_span=`git rev-list $oldrev..$newrev`
+fi
+
+commit_lines=()
+for commit in $rev_span; do
+  commit_msg_header=$(git show -s --format=%s $commit)
+  if ! [[ "$commit_msg_header" =~ (${commit_msg_regex})|(${merge_msg_regex}) ]]; then
+    commit_lines+=(
+      "$commit"
+      "$commit_msg_header"
+      ""
+    )
+  fi
+done
+
+if [ ${#commit_lines[@]} -gt 0 ]; then
+  # last line break is not necessary
+  unset commit_lines[-1]
+  report_lines=(
+    "The following commits did not pass the Conventional Commits check:"
+    "\`\`\`" 
+    "${commit_lines[@]}"
+    "\`\`\`"
+    ""
+    "Please reword and repush the commits."
+    "- Allowed types: \`$commit_msg_type_regex\`"
+    "- More information: https://www.conventionalcommits.org/en/v1.0.0/"
+  )
+  printf '%s\n' "${report_lines[@]}"
+  exit 1
+fi
