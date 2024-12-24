@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          show-progress: false
+      - name: Commits check
+        id: commits-check
+        shell: bash
+        run: |
+          case "${{ github.event_name }}" in
+            push)
+              # main branch should be protected from force push
+              # but we skip just in case, because the before ref is unavailable
+              if [[ "${{ github.event.forced }}" == "true" ]]; then
+                echo "Commit force pushed, skipping check"
+                exit 0
+              fi
+              oldrev="${{ github.event.base_ref || github.event.before }}"
+              newrev="${{ github.event.after }}"
+              ;;
+            pull_request)
+              oldrev="${{ github.event.pull_request.base.sha }}"
+              newrev="${{ github.event.pull_request.head.sha }}"
+              ;;
+            *)
+              echo "Unsupported workflow event ${{ github.event_name }}"
+              exit 0
+              ;;
+          esac
+          report_file="${{ runner.temp }}/commits-check.md"
+          ${{ github.workspace }}/.github/workflows/conventional-commits $oldrev $newrev $report_file
+          exit "$?"
+      - name: Submit summary
+        # try to create a summary on success or failure, but not on cancelled
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          commits_check_report="${{ runner.temp }}/commits-check.md"
+          if [[ -f "$report_file" ]]; then
+            echo "## Commits check report" >> $GITHUB_STEP_SUMMARY
+            cat $commits_check_report >> $GITHUB_STEP_SUMMARY
+            echo >> $GITHUB_STEP_SUMMARY
+            echo >> $GITHUB_STEP_SUMMARY
+          fi
+
+
