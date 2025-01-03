@@ -43,6 +43,20 @@ lazy val sbtSteps = project.in(file("."))
     ).dependOn.value,
     // internal package does not have compatibility guarantees, so we exclude it
     mimaBinaryIssueFilters += ProblemFilters.exclude[Problem]("sbtsteps.internal.*"),
+    mimaPreviousArtifacts := {
+      val currentVersion = version.value
+      val previousVersion = sbtrelease.Version(currentVersion)
+        .getOrElse(LocalPlugin.formatError(currentVersion))
+        .withoutQualifier
+        .unapply
+      Set(
+        Defaults.sbtPluginExtra(
+          organization.value %% name.value % previousVersion,
+          sbtBinaryVersion.value,
+          scalaBinaryVersion.value
+        ),
+      )
+    },
     // https://github.com/sbt/sbt-pgp/issues/170
     pgpSigningKey := Credentials
       .forHost(credentials.value, organization.value)
