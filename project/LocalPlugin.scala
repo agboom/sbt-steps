@@ -5,10 +5,18 @@ import sbtsteps.internal.cli.*
 import sbtrelease.*
 import sbtversionpolicy.*
 import xerial.sbt.Sonatype
-import sys.process.Process
-import scala.sys.process.ProcessLogger
-import scala.annotation.tailrec
+
+import sttp.client3.quick.*
+import sttp.client3.upicklejson.*
+import sttp.client3.HttpClientSyncBackend
+import upickle.default.*
+
 import java.nio.charset.StandardCharsets
+
+import scala.sys.process.{Process, ProcessLogger}
+import scala.annotation.tailrec
+import scala.util.Try
+import scala.util.control.NonFatal
 
 /** Release and version policy process adapted from
   * [sbt-version-policy](https://github.com/scalacenter/sbt-version-policy/blob/main/sbt-version-policy/src/sbt-test/sbt-version-policy/example-sbt-release/build.sbt)
@@ -17,6 +25,10 @@ import java.nio.charset.StandardCharsets
   */
 object LocalPlugin extends AutoPlugin {
   object autoImport {
+    lazy val gitHubOrganization = settingKey[String]("GitHub organization")
+
+    lazy val gitHubRepository = settingKey[String]("GitHub repository")
+
     lazy val resetCompatibilityIntention =
       taskKey[Unit](
         "Set versionPolicyIntention to Compatibility.BinaryAndSourceCompatible, and commit the change",
@@ -49,6 +61,11 @@ object LocalPlugin extends AutoPlugin {
     ReleasePlugin && SbtVersionPolicyPlugin && Sonatype
 
   override def globalSettings = ReleasePlugin.extraReleaseCommands
+
+  override def buildSettings = Def.settings(
+    gitHubOrganization := "agboom",
+    gitHubRepository := "sbt-steps",
+  )
 
   override def projectSettings = Def.settings(
     // needed for sbt-release to accept the version format
@@ -135,36 +152,43 @@ object LocalPlugin extends AutoPlugin {
       )
     }
 
-    def encode(s: String) =
-      java.net.URLEncoder.encode(s, StandardCharsets.UTF_8)
+    releaseNotesLines.toTask(s" --include-authors $previousTag $releaseTag")
+      .map { notes =>
+        val notesAndFooter = notes ++ List(
+          "",
+          s"**Full Changelog**: https://github.com/agboom/sbt-steps/compare/$previousTag..$releaseTag",
+        )
+        val params = List(
+          s"title=${urlEncode(releaseVersion)}",
+          s"tag=${urlEncode(releaseTag)}",
+          s"body=${urlEncode(notes.mkString("\n"))}",
+        )
 
-    releaseNotesLines.toTask(s" $previousTag $releaseTag").map { notes =>
-      val notesAndFooter = notes ++ List(
-        "",
-        s"**Full Changelog**: https://github.com/agboom/sbt-steps/compare/$previousTag..$releaseTag",
-      )
-      val params = List(
-        s"title=${encode(releaseVersion)}",
-        s"tag=${encode(releaseTag)}",
-        s"body=${encode(notes.mkString("\n"))}",
-      )
-
-      SimpleReader.readLine(
-        "Press any key to open your browser to finish the release...",
-      )
-      val queryString = params.mkString("?", "&", "")
-      java.awt.Desktop.getDesktop.browse(uri(
-        s"$releaseBaseUrl$queryString",
-      ))
-    }
+        log.info(
+          "Please make sure your browser is signed into GitHub in the next step.",
+        )
+        SimpleReader.readLine(
+          "Press any key to open your browser to finish the release...",
+        )
+        val queryString = params.mkString("?", "&", "")
+        java.awt.Desktop.getDesktop.browse(uri(
+          s"$releaseBaseUrl$queryString",
+        ))
+      }
   }
 
+  private def urlEncode(s: String) =
+    java.net.URLEncoder.encode(s, StandardCharsets.UTF_8)
+
   private val releaseNotesLinesTask = Def.inputTask {
-    val (fromRevOpt, toRevOpt) = CLIParser(
+    val (includeAuthors, fromRevOpt, toRevOpt) = CLIParser(
+      Flag('a', "include-authors"),
       PosArg("from-rev", StringBasic.?).withDefault(None),
       PosArg("to-rev", StringBasic.?).withDefault(None),
     ).parsed
-    val log = state.value.log
+    val log = streams.value.log
+    val org = gitHubOrganization.value
+    val repo = gitHubRepository.value
     val fromRev = fromRevOpt.getOrElse {
       log.info("<from-rev> not passed, assuming first commit")
       Process("git" :: "rev-list" :: "HEAD" :: Nil).lineStream(log).lastOption
@@ -176,13 +200,21 @@ object LocalPlugin extends AutoPlugin {
       log.info("<to-rev> not passed, assuming HEAD")
       "HEAD"
     }
-    // get list of commit hashes in the given range for later reference
+    // get list of commit hashes and dates in the given range for later reference:
+    // full hash (%H)
+    // author date (%as)
     val revRange = s"$fromRev..$toRev"
-    val revs = Process(
-      "git" :: "rev-list" :: "--no-merges" :: revRange :: Nil,
+    val revDateRegex = "^(.*) (.*)$".r
+    val (revs, dates) = Process(
+      "git" :: "rev-list" :: "--format=%H %as"
+        :: "--no-commit-header" :: "--no-merges" :: revRange :: Nil,
     )
       .lineStream(log)
       .toList
+      .foldRight(List.empty[String] -> List.empty[String]) {
+        case (revDateRegex(rev, date), (revs, dates)) =>
+          (rev :: revs) -> (date :: dates)
+      }
 
     // machine-readable git log formatted as follows:
     // subject (%s)
@@ -193,6 +225,25 @@ object LocalPlugin extends AutoPlugin {
     )
       .lineStream(log)
       .toList
+
+    val authors: Map[GitRev, Author] = Try {
+      for {
+        lastDate <- dates.headOption if includeAuthors
+        // GH API's until is exclusive, so add one day
+        until = java.time.LocalDate.parse(lastDate) plusDays 1
+        from <- dates.lastOption
+      } yield getGitHubAuthors(org, repo, from -> s"$until")
+    }.fold(
+      {
+        case NonFatal(ex) =>
+          log.error(
+            "Failed to get GitHub authors. Continuing creating release notes without.",
+          )
+          log.trace(ex)
+          Map.empty
+      },
+      _.getOrElse(Map.empty),
+    )
 
     // loops over revision list and gets the relevant log lines
     // subjects that do not adhere to Conventional Commits are skipped
@@ -219,6 +270,14 @@ object LocalPlugin extends AutoPlugin {
             done
           case commitSubject :: commitBody =>
             val changeOpt = categorizeCommit(commitSubject, commitBody)
+              .map {
+                // if the profile name for the commit author is found, add to line
+                case (category, change) =>
+                  val authorAnnotation = authors.get(rev)
+                    .map(author => s" by @$author")
+                    .getOrElse("")
+                  category -> s"$change$authorAnnotation"
+              }
             if (changeOpt.isEmpty) {
               log.info(
                 "Skipping commit because it doesn't match the Conventional Commits format:",
@@ -249,7 +308,51 @@ object LocalPlugin extends AutoPlugin {
     log.info("\n")
     log.info(s"Release notes for $revRange:")
     log.info(lines.mkString("\n"))
+    log.info("\n")
     lines
+  }
+
+  private type GitRev = String
+  private type Author = String
+
+  // gets profile names from commit hashes using GH API
+  // public GH API does not allow querying commits by hash so we use a date range
+  // with this method we don't need an API token for now
+  // https://docs.github.com/en/rest/commits/commits?apiVersion=2022-11-28#list-commits
+  private def getGitHubAuthors(
+    org: String,
+    repo: String,
+    sinceUntil: (String, String),
+  ): Map[GitRev, Author] = {
+    val baseUrl = s"https://api.github.com/repos/$org/$repo/commits"
+    val (since, until) = sinceUntil
+    lazy val backend = HttpClientSyncBackend()
+    val response = quickRequest
+      .get(uri"$baseUrl?since=$since&until=$until")
+      .contentType("application/vnd.github+json")
+      // .auth.bearer(sys.env("GITHUB_TOKEN"))
+      .header("X-GitHub-Api-Version", "2022-11-28")
+      .response(asJsonAlways[ujson.Value])
+      .send(backend)
+
+    if (!response.code.isSuccess) {
+      throw new MessageOnlyException(
+        s"Failed to get authors from GitHub API, response code ${response.code}",
+      )
+    } else {
+      response.body.fold(
+        throw _, {
+          _.arr.flatMap { value =>
+            val obj = value.obj
+            for {
+              sha <- obj.get("sha")
+              author <- obj.get("author")
+              login <- author.obj.get("login")
+            } yield sha.str -> login.str
+          }
+        },
+      )
+    }.toMap
   }
 
   private def categorizeCommit(
@@ -289,8 +392,6 @@ object LocalPlugin extends AutoPlugin {
       | * During release, the released version is checked against the intention.
       | */
       |ThisBuild / versionPolicyIntention := Compatibility.BinaryAndSourceCompatible""".stripMargin
-
-  private lazy val devnull = ProcessLogger(_ => (), _ => ())
 
   /** @return
     *   a [release version
