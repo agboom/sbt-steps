@@ -43,17 +43,36 @@ jobs:
           report_file="${{ runner.temp }}/commits-check.md"
           ${{ github.workspace }}/.github/workflows/conventional-commits $oldrev $newrev $report_file
           exit "$?"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: sbt
+      - uses: sbt/setup-sbt@v1
+      - uses: coursier/cache-action@v6
+      - name: CI
+        shell: bash
+        run: sbt ci
       - name: Submit summary
         # try to create a summary on success or failure, but not on cancelled
         if: ${{ !cancelled() }}
         shell: bash
         run: |
-          commits_check_report="${{ runner.temp }}/commits-check.md"
+          report_file="${{ runner.temp }}/commits-check.md"
           if [[ -f "$report_file" ]]; then
             echo "## Commits check report" >> $GITHUB_STEP_SUMMARY
-            cat $commits_check_report >> $GITHUB_STEP_SUMMARY
+            cat $report_file >> $GITHUB_STEP_SUMMARY
             echo >> $GITHUB_STEP_SUMMARY
             echo >> $GITHUB_STEP_SUMMARY
+          fi
+          report_file=./target/ci-status.html
+          if [ -f $report_file ]; then
+            echo "# CI summary" >> $GITHUB_STEP_SUMMARY
+            cat $report_file >> $GITHUB_STEP_SUMMARY
+            echo >> $GITHUB_STEP_SUMMARY
+            echo >> $GITHUB_STEP_SUMMARY
+          else
+            echo "Cannot create CI summary, because $report_file does not exist."
           fi
 
 

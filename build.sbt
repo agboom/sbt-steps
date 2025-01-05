@@ -30,6 +30,11 @@ inThisBuild(Seq(
   versionScheme := Some(VersionScheme.SemVerSpec),
   scalacOptions := Settings.compilerOptions,
   versionPolicyIgnoredInternalDependencyVersions := Some("^\\d+\\.\\d+\\.\\d+\\+\\d+".r),
+  ci / steps := Seq(
+    versionPolicyCheck,
+    Test / test,
+    scripted,
+  ),
 ))
 
 lazy val sbtSteps = project.in(file("."))
@@ -74,4 +79,5 @@ lazy val sbtTestkit = project.in(file("testkit"))
     // only used internally for scripted plugins
     publish / skip := true,
     publishLocal / skip := false,
+    ci / steps := Nil,
   )
