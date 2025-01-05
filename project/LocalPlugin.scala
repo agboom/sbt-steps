@@ -87,6 +87,7 @@ object LocalPlugin extends AutoPlugin {
       releaseStepInputTask(scripted),
       tagRelease,
       releaseStepCommand("publishSigned"),
+      releaseStepCommand("sonatypeCentralUpload"),
       releaseStepTask(resetCompatibilityIntention),
       pushChanges,
       releaseStepTask(draftGitHubRelease),
