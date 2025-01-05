@@ -4,7 +4,7 @@ val sttpV = "3.10.2"
 libraryDependencies += "com.softwaremill.sttp.client3" %% "core" % sttpV
 libraryDependencies += "com.softwaremill.sttp.client3" %% "upickle" % sttpV
 
-addSbtPlugin("io.github.agboom" % "sbt-steps" % "0.1.0")
+addSbtPlugin("io.github.agboom" % "sbt-steps" % "0.2.0")
 addSbtPlugin("ch.epfl.scala" % "sbt-version-policy" % "3.2.1")
 addSbtPlugin("com.github.sbt" % "sbt-release" % "1.4.0")
 addSbtPlugin("com.github.sbt" % "sbt-dynver" % "5.1.0")
