@@ -1,8 +1,8 @@
 # sbt steps
 
 Configure, run and share a list of tasks and commands to run in your sbt projects. Run the
-steps from the sbt shell. Generate reports in HTML or in ASCII format. Use in GitHub
-Actions or any other CI environment.
+steps from the sbt shell with a single command. Generate reports in HTML or in ASCII
+format. Use in GitHub Actions or any other CI environment.
 
 ## Demo
 
@@ -13,7 +13,7 @@ Here are two report examples after running `ci` using `CIStepsPlugin`:
     <td><b>HTML report</b></td>
   </tr>
   <tr valign=top>
-    <td height=460>
+    <td height=526>
       <p><code><b>sbt:root> ci/stepsStatusReport -</b></code></p>
       <sup>
         <table><tr height=30><td colspan=5 width=400>(<b><code>+Test / test</code></b>) Cross test</td></tr><tr height=30><td title="succeeded" width=40>:white_check_mark:</td><td colspan=2><code>+bar / Test / test</code></td></tr><tr height=30><td title="succeeded" width=40>:white_check_mark:</td><td colspan=2><code>+foo / Test / test</code></td></tr><tr height=30><td title="succeeded" width=40>:white_check_mark:</td><td colspan=2><code>+root / Test / test</code></td></tr><tr height=30><td colspan=5 width=400>(<b><code>+publishLocal</code></b>) Cross publish</td></tr><tr height=30><td title="succeeded" width=40>:white_check_mark:</td><td colspan=2><code>+bar / publishLocal</code></td></tr><tr height=30><td></td><td width=40>:green_circle:</td><td>Successfully published bar <code>0.1.0-SNAPSHOT</code></td></tr><tr height=30><td title="succeeded" width=40>:white_check_mark:</td><td colspan=2><code>+foo / publishLocal</code></td></tr><tr height=30><td></td><td width=40>:green_circle:</td><td>Successfully published foo <code>0.1.0-SNAPSHOT</code></td></tr><tr height=30><td title="skipped" width=40>:white_large_square:</td><td colspan=2><code>+root / publishLocal</code></td></tr><tr height=30><td></td><td width=40>:white_circle:</td><td><code>publishLocal / skip</code> is set to true</td></tr><tr height=30><td colspan=5 width=400>(<b><code>Compile / unidoc</code></b>) Generate unified Scaladoc</td></tr><tr height=30><td title="failed" width=40>:red_square:</td><td colspan=2><code>root / Compile / unidoc</code></td></tr><tr height=30><td></td><td width=40>:x:</td><td>(<code>Scalaunidoc / doc</code>) Scaladoc generation failed</td></tr></table>  
@@ -26,7 +26,7 @@ Here are two report examples after running `ci` using `CIStepsPlugin`:
     <td><b>ASCII report</b></td>
   </tr>
   <tr valign=top>
-    <td height=460>
+    <td height=526>
       <p><code><b>sbt:root> ci/stepsTree --status</b></code></p>
       <img alt="steps tree" src="docs/stepstree.png" width=370 />
     </td>
@@ -63,6 +63,8 @@ lazy val myProject = (project in file("."))
   )
 ```
 
+Head over to [Usage](#usage).
+
 ### Create your own `StepsPlugin`
 
 See the [plugin development docs][create-steps-plugin].
@@ -97,7 +99,7 @@ After `ci` has completed, run `ci/stepsTree --status` to print the steps tree wi
 completed status. A status optionally has a message, such as:
 ```
 [info] +- status: succeeded
-[info]  +- Successfully published my-project `0.1.0-SNAPSHOT`.
+[info]  +- Successfully published my-project 0.1.0-SNAPSHOT.
 ```
 
 A detailed HTML report is created during `ci` that you can use as a job summary in [GitHub
@@ -181,6 +183,7 @@ customized as follows:
 
 ```sbt
 lazy val foo = (project in file("foo"))
+  .enablePlugins(ScalaUnidocPlugin)
   .settings(
     ci / steps := Seq(
       Test / test,
@@ -218,9 +221,8 @@ sbt:bar > ci/stepsTree
 
 > [!IMPORTANT]
 > Task steps do not run for project aggregates configured by `aggregate()`. Instead, they
-> are run for the subproject they are configured on. However, it's possible to run a task
-> only for a specific subproject with [project filters](#set-project-filters-on-a-step).
-> Sharing steps is done like any sbt setting, read the next section for more information.
+> are run for the subproject they are configured on. To share steps between subprojects,
+> see the next section. 
 
 > [!TIP]
 > Because the `steps` setting is a list, they can also be appended (`ci/steps += Compile /
@@ -238,8 +240,8 @@ sbt:bar > ci/stepsTree
 
 ### Share steps between subprojects
 
-Use the `ThisBuild` scope (or use a shared setting) to share steps between subprojects.
-For example:
+Like any sbt setting, use the `ThisBuild` scope (or use a shared setting) to share steps
+between subprojects. For example:
 
 ```sbt
 ThisBuild / ci / steps = Seq(
@@ -256,16 +258,20 @@ This configuration will result in the following steps sequence:
 
 ```
 sbt:root> ci/stepsTree
-[info] task: Test / +test
+[info] task: Test / test
 [info]   +-project steps:
 [info]     +-task: foo / Test / test
 [info]     +-task: root / Test / test
 [info] 
-[info] task: +publish
+[info] task: publish
 [info]   +-project steps:
 [info]     +-task: foo / publish
 [info]     +-task: root / publish
 ```
+
+> [!TIP]
+> To skip a step for a particular project, use [`skip := true`](#skip-a-project-step) or
+> [project filters](#set-project-filters-on-a-step)
 
 > [!TIP]
 > Sharing steps across builds is possible by [creating a plugin].
@@ -394,7 +400,8 @@ lazy val foo = (project in file("."))
 
 ### Skip a project step
 
-To skip a task step, set `skip := true` like you would for any sbt task. For example:
+To skip a task step in a particular project, set `skip := true` like you would for any sbt
+task. For example:
 
 ```sbt
 inThisBuild(Seq(
@@ -417,7 +424,7 @@ This configuration will result in the following steps sequence:
 
 ```
 sbt:root> ci/stepsTree --verbose
-[info] task: Test / +test
+[info] task: +Test / test
 [info]   +-cross build: true
 [info]   +-project steps:
 [info]     +-task: +foo / Test / test
@@ -431,16 +438,18 @@ sbt:root> ci/stepsTree --verbose
 [info]       +-skipped: root / publish / skip is set to true
 ```
 
-> [!NOTE]
-> Command steps cannot be skipped with `skip := true`, so use project filters instead.
-> Read further for more information.
+> [!WARNING]
+> To skip a command step it's better to use [project
+> filters](#set-project-filters-on-a-step). The `skip := true` setting may work if the
+> command refers to a task, but this behavior is untested in sbt-steps.
 
 ### Set project filters on a step
 
 Project filters allow you to declare a (shared) step, but only run it for a specific
 subproject. Use the `forProject` combinator to achieve this. The default is `ThisProject`.
-Project filters are especially useful for command steps. For example, the following steps
-will run the `coverageOn` and `coverageOff` command for the root project only.
+Project filters are especially useful for command steps, as they complement the `skip :=
+true` feature. For example, the following steps will run the `coverageOn` and
+`coverageOff` command for the root project only.
 
 ```sbt
 ThisBuild / ci / steps := Seq(
@@ -465,7 +474,7 @@ sbt:root> ci/stepsTree
 [info]   +-project steps:
 [info]     +-command: project root; coverageOn
 [info] 
-[info] task: Test / +test
+[info] task: +Test / test
 [info]   +-cross build: true
 [info]   +-project steps:
 [info]     +-task: +foo / Test / test
@@ -510,15 +519,14 @@ This configuration will result in the following steps sequence:
 sbt:root> ci/stepsTree
 [info] task: authenticate
 [info]   +-run once: true
-[info]   +-project filter: LocalRootProject
 [info]   +-project steps:
 [info]     +-task: foo / authenticate
 [info] 
 [info] task: +publish
 [info]   +-cross build: true
 [info]   +-project steps:
-[info]     +-task: foo / +publish
-[info]     +-task: root / +publish
+[info]     +-task: +foo / publish
+[info]     +-task: +root / publish
 ```
 
 Note the added `+-run once: true` line in the steps tree.
@@ -578,7 +586,7 @@ This configuration will result in the following steps sequence:
 ```
 > ci/stepsTree
 [info] project: root
-[info]   +-task: Test / +test
+[info]   +-task: +Test / test
 [info]     +-cross build: true
 [info]   +-task: +publish
 [info]     +-cross build: true
