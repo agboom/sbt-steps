@@ -1,14 +1,16 @@
 import com.typesafe.tools.mima.core.*
 
-lazy val user = "agboom"
-lazy val repo = "sbt-steps"
 inThisBuild(Seq(
   organization := "io.github.agboom",
-  homepage := Some(url(s"https://github.com/$user/$repo")),
+  homepage := Some(url(s"https://github.com/${gitHubOrganization.value}/${gitHubRepository.value}")),
   licenses := List(
     "Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0"),
   ),
-  scmInfo := Some(ScmInfo(url(s"https://github.com/$user/$repo"), s"scm:git@github.com:$user/$repo.git")),
+  scmInfo := {
+    val org = gitHubOrganization.value
+    val repo = gitHubRepository.value
+    Some(ScmInfo(url(s"https://github.com/$org/$repo"), s"scm:git@github.com:$org/$repo.git"))
+  },
   developers := List(
     Developer(
       "agboom",
