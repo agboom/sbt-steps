@@ -16,7 +16,7 @@ fi
 commit_msg_type_regex='feat|fix|refactor|style|test|docs|build|ci|perf'
 commit_msg_scope_regex='.{1,20}'
 commit_msg_description_regex='.{1,100}'
-commit_msg_regex="^(${commit_msg_type_regex})(\(${commit_msg_scope_regex}\))?: (${commit_msg_description_regex})\$"
+commit_msg_regex="^(${commit_msg_type_regex})(\(${commit_msg_scope_regex}\))?!?: (${commit_msg_description_regex})\$"
 merge_msg_regex="^Merge branch '.+'\$"
 
 zero_commit="0000000000000000000000000000000000000000"
