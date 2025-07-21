@@ -68,6 +68,13 @@ object LocalPlugin extends AutoPlugin {
   )
 
   override def projectSettings = Def.settings(
+    scalacOptions := Settings.compilerOptions,
+    // explicitly disable fatal warnings if using Metals
+    scalacOptions --= {
+      if (isMetalsEnabled) {
+        Seq("-Xfatal-warnings", "-Werror")
+      } else Nil
+    },
     // needed for sbt-release to accept the version format
     version := version.value.replace('+', '-'),
     // don't use ThisBuild for version
@@ -470,4 +477,13 @@ object LocalPlugin extends AutoPlugin {
       st,
     )
   }
+
+  /** Metals requires fatal warnings to be disabled.
+    *
+    * @see
+    *   https://scalameta.org/metals/docs/integrations/new-build-tool#recommended-compiler-options
+    * @see
+    *   https://github.com/scalameta/metals/blob/f9e146f40c3e61728b9bf2515077d8dc7b6b234d/metals/src/main/scala/scala/meta/internal/builds/BloopInstall.scala#L86
+    */
+  private lazy val isMetalsEnabled = sys.env.get("METALS_ENABLED").contains("true")
 }
