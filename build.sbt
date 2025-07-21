@@ -33,7 +33,8 @@ inThisBuild(Seq(
   ci / steps := Seq(
     versionPolicyCheck,
     Test / test,
-    scripted,
+    // exclude perf/* tests from CI tests
+    scripted withInput "sbt-steps*/*",
   ),
 ))
 
