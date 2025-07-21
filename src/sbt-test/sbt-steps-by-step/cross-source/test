@@ -1,5 +1,4 @@
-# test inspired by https://github.com/sbt/sbt/issues/3143
-# use to test memory usage
+# test cross build steps behavior
 -> ci
 > ci / stepsTree -sv
 > ciStepsStatusSpec

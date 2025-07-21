@@ -182,8 +182,8 @@ object StepsUtils {
       ).show(pendingStep.step)
     }
 
-  /** Create an [[sbt.Show]] instance for [[model.Step]]
-    * using the given show instances.
+  /** Create an [[sbt.Show]] instance for [[model.Step]] using the given show
+    * instances.
     *
     * @param extracted
     *   Needed to relate the key or command to the build definition.
@@ -375,6 +375,17 @@ object StepsUtils {
         multiProjectCommandToAction(step.command, verbose)
     }
 
+    // print single step info
+    // only print skipped steps on verbose mode
+    if (verbose || !pendingStep.willBeSkipped) {
+      stateStatus.state.log.info(ASCIIUtils.pendingStepToASCIITree(
+        pendingStep,
+        verbose,
+        includeRootProjectName = true,
+        stateStatus.state,
+      ))
+    }
+
     if (pendingStep.crossBuild) {
       CrossUtils.multiProjectCrossBuildToAction(
         Seq(pendingStep),
@@ -412,14 +423,24 @@ object StepsUtils {
         multiProjectCommandToAction(step.command, verbose)
     }
 
-    if (step.crossBuild) {
-      CrossUtils.multiProjectCrossBuildToAction(
-        pendingSteps,
+    { (status: StateStatus) =>
+      status.state.log.info("\n")
+      status.state.log.info(ASCIIUtils.pendingStepsByStepToASCIITree(
+        Seq(step -> pendingSteps),
         verbose,
-        stepAction,
-      )
-    } else {
-      stepAction(pendingSteps)
+        status.state,
+      ))
+      status
+    }.andThen {
+      if (step.crossBuild) {
+        CrossUtils.multiProjectCrossBuildToAction(
+          pendingSteps,
+          verbose,
+          stepAction,
+        )
+      } else {
+        stepAction(pendingSteps)
+      }
     }
   }
 
@@ -443,14 +464,6 @@ object StepsUtils {
         pendingSteps.foldLeft(MultiStepResults(startStatus, Nil)) {
           case (MultiStepResults(status, results), staged: StagedStep)
               if status.continue =>
-            status.state.log.info(
-              ASCIIUtils.pendingStepToASCIITree(
-                staged,
-                verbose,
-                includeRootProjectName = true,
-                status.state,
-              ),
-            )
             // switch to the right project before executing the command
             StepsUtils
               .setProject(staged.project)
@@ -465,7 +478,7 @@ object StepsUtils {
                   )
                 case (state, Inc(err)) =>
                   // transformInc takes care that the right ScopedKey is found for the failed task
-                  // https://github.com/sbt/sbt/blob/ee7a9aecc559b999f729d74508b7adafc204ef12/main/src/main/scala/sbt/EvaluateTask.scala#L524
+                  // https://github.com/sbt/sbt/blob/ee7a9aec/main/src/main/scala/sbt/EvaluateTask.scala#L524
                   val transformed =
                     EvaluateTask.transformInc(Inc(err)).toEither.left.get
                   // make sure the error is properly logged
@@ -486,16 +499,6 @@ object StepsUtils {
 
           case (MultiStepResults(status, results), skipped: SkippedStep)
               if status.continue =>
-            if (verbose) {
-              status.state.log.info(
-                ASCIIUtils.pendingStepToASCIITree(
-                  skipped,
-                  verbose,
-                  includeRootProjectName = true,
-                  status.state,
-                ),
-              )
-            }
             val result = StepResult.Skipped(
               skipped.skipReason,
               skipped.step,
@@ -579,7 +582,6 @@ object StepsUtils {
   ): Seq[PendingStep] => StateStatus => MultiStepResults = {
     pendingSteps => status =>
       val extracted = Project.extract(status.state)
-      import extracted.*
       lazy val log = status.state.log
 
       // converts a pending step into a task that can be run by sbt
@@ -604,17 +606,6 @@ object StepsUtils {
         step match {
           case skipped: SkippedStep =>
             task {
-              // only log skipped steps in verbose mode
-              if (verbose) {
-                log.info(
-                  ASCIIUtils.pendingStepToASCIITree(
-                    skipped,
-                    verbose,
-                    includeRootProjectName = true,
-                    status.state,
-                  ),
-                )
-              }
               StepResult.Skipped(
                 skipped.skipReason,
                 skipped.step,
@@ -622,75 +613,24 @@ object StepsUtils {
               )
             }
           case staged: StagedStep =>
-            task {
-              log.info(
-                ASCIIUtils.pendingStepToASCIITree(
-                  staged,
-                  verbose,
-                  includeRootProjectName = true,
-                  status.state,
-                  scalaVersion = projectScalaVersion,
-                ),
-              )
-            } && toTask(resolvedKey).map {
+            toTask(resolvedKey).map {
               case Value(value) =>
                 StepResult.Succeeded(value, staged.step, staged.project)
               case Inc(err) =>
-                StepResult.Failed(err, staged.step, staged.project)
+                // transformInc takes care that the right ScopedKey is found for the failed task
+                // https://github.com/sbt/sbt/blob/ee7a9aec/main/src/main/scala/sbt/EvaluateTask.scala#L524
+                val transformed = EvaluateTask.transformInc(
+                  Inc(err),
+                ).toEither.left.get
+                StepResult.Failed(transformed, staged.step, staged.project)
             }
         }
       }
 
       // adapted from sbt.internal.Aggregation.timedRun
       // this will actually run the aggregated task and give a new state
-      EvaluateTask.withStreams(structure, status.state) {
+      EvaluateTask.withStreams(extracted.structure, status.state) {
         str =>
-          // create a single task out of all pending steps
-          // use MultiStepResults to capture the result
-          // note that the state in the result is not changed yet, this is done below
-          val aggregatedTaskToRun = pendingSteps
-            .foldLeft(task(MultiStepResults(status, Nil))) {
-              case (accTask, step) =>
-                accTask.flatMap {
-                  case MultiStepResults(status, results) if status.continue =>
-                    stepToTask(step).map {
-                      case result: StepResult.Succeeded =>
-                        MultiStepResults(
-                          status,
-                          results :+ result,
-                        )
-                      case result: StepResult.Skipped =>
-                        MultiStepResults(
-                          status,
-                          results :+ result,
-                        )
-                      case result: StepResult.Failed =>
-                        // transformInc takes care that the right ScopedKey is found for the failed task
-                        // https://github.com/sbt/sbt/blob/ee7a9aecc559b999f729d74508b7adafc204ef12/main/src/main/scala/sbt/EvaluateTask.scala#L524
-                        val transformed = EvaluateTask.transformInc(
-                          Inc(result.error),
-                        ).toEither.left.get
-                        // make sure the error is properly logged
-                        EvaluateTask.logIncomplete(
-                          transformed,
-                          status.state,
-                          str,
-                        )
-                        MultiStepResults(
-                          // continue or abort depending on the step setting
-                          status = if (step.alwaysContinue) {
-                            StateStatus.ContinuedWithErrors(status.state)
-                          } else {
-                            StateStatus.AbortedWithErrors(status.state)
-                          },
-                          results :+ result.copy(error = transformed),
-                        )
-                    }
-                  case results: MultiStepResults =>
-                    // reached abort state, so drop remaining steps
-                    task(results)
-                }
-            }
           val transform = EvaluateTask.nodeView(
             status.state,
             str,
@@ -698,10 +638,11 @@ object StepsUtils {
             sbt.std.Transform.DummyTaskMap(Nil),
           )
           val (newState, result) = EvaluateTask.runTask(
-            aggregatedTaskToRun,
+            // create a single task out of all pending steps
+            pendingSteps.map(stepToTask).join,
             status.state,
             str,
-            structure.index.triggers,
+            extracted.structure.index.triggers,
             EvaluateTask.extractedTaskConfig(
               extracted,
               extracted.structure,
@@ -709,11 +650,18 @@ object StepsUtils {
             ),
           )(transform)
 
-          // capture the task results and transform into MultiStepResults with StepStatus
+          // capture the task results and transform into MultiStepResults
           result match {
             case Value(results) =>
-              // apply the new state to the step result
-              results.copy(status = results.status.withState(newState))
+              // determine the right status based on step results
+              val newStatus = results.collectFirst {
+                case (result: StepResult.Failed)
+                    if (result.step.alwaysContinue) =>
+                  StateStatus.ContinuedWithErrors(newState)
+                case _: StepResult.Failed =>
+                  StateStatus.AbortedWithErrors(newState)
+              }.getOrElse(status.withState(newState))
+              MultiStepResults(newStatus, results)
             case Inc(err) =>
               // the entire run has failed, so we have no step results to return
               // this only happens if an exception occurs around the handling of the task
@@ -748,10 +696,11 @@ object StepsUtils {
     )
   }
 
-  /** Convert an [[sbt.InputKey]] to a runnable [[sbt.Task]] with the given input.
+  /** Convert an [[sbt.InputKey]] to a runnable [[sbt.Task]] with the given
+    * input.
     * @return
-    *   Runnable [[sbt.Task]] that either results in a [[sbt.Value]] or an [[sbt.Inc]].
-    *   Invalid input will also result in an [[sbt.Inc]].
+    *   Runnable [[sbt.Task]] that either results in a [[sbt.Value]] or an
+    *   [[sbt.Inc]]. Invalid input will also result in an [[sbt.Inc]].
     */
   def inputKeyToTask[T](
     input: String,

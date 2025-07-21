@@ -5,20 +5,21 @@ import sbt.*
 import model.*
 
 /** Data type to pass the results of a multi step action around
-  * @param state
-  *   The state as a result of the action.
-  * @param succeeded
-  *   True if there are no failed steps.
+  * @param status
+  *   The combined state and status of the run steps
   * @param stepResults
-  *   A list containing a [[model.StepResult]] for each completed step
-  *   accompanied with its [[model.ResultMessage]]s.
+  *   A list containing a [[model.StepResult]] for each completed step.
   */
 case class MultiStepResults(
   status: StateStatus,
   stepResults: Seq[StepResult],
 )
 
-sealed trait StateStatus {
+/** Stores the result [[sbt.State]] and status of a step run. State is used to
+  * return to sbt in the end. Status is used to indicate failure and whether to
+  * continue or not.
+  */
+sealed trait StateStatus extends Product with Serializable {
   type Self <: StateStatus
   def state: State
   def continue: Boolean

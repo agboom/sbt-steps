@@ -198,8 +198,8 @@ object StepsPlugin extends AutoPlugin {
       }
   }
 
-  /** Aggregates all steps in the build definition to a list of pending steps per
-    * step. The order of the aggregated steps is determined by topologically
+  /** Aggregates all steps in the build definition to a list of pending steps
+    * per step. The order of the aggregated steps is determined by topologically
     * sorting all project steps. Any cycles in the graph will result in an
     * error.
     * @example
@@ -361,8 +361,8 @@ object StepsPlugin extends AutoPlugin {
     *   The step to convert
     * @return
     *   A tuple of:
-    *   - '''StagedStep''' if step is ready to run, or '''SkippedCIStep''' if
-    *     some skip predicate holds,
+    *   - '''StagedStep''' if step is ready to run, or '''SkippedStep''' if some
+    *     skip predicate holds,
     *   - '''Some(step)''' if the step has the run-once flag and was not yet in
     *     stepsRunOnce, or '''None''' if the step is already in stepsRunOnce (or
     *     doesn't have the flag).
@@ -469,6 +469,30 @@ object StepsPlugin extends AutoPlugin {
     )
   }
 
+  private def logStart(
+    keyName: String,
+    verbose: Boolean,
+    stagedCount: Int,
+    skipCount: Int,
+    state: State,
+  ): Unit = {
+    val stepsStr = (stagedCount, skipCount) match {
+      case (0, 0) => "no steps"
+      case (1, 1) => "2 steps, of which 1 will be skipped"
+      case (1, 0) => "1 step, none skipped"
+      case (st, 0) => s"$st staged project steps"
+      case (0, sk) => s"no steps, all $sk will be skipped"
+      case (st, sk) => s"${st + sk} steps, of which $sk will be skipped"
+    }
+    state.log.info(s"Starting $keyName with $stepsStr...")
+
+    if (!verbose) {
+      state.log.info(
+        "Re-run command with -v option to see more details.",
+      )
+    }
+  }
+
   private def stepsInputTask(key: InputKey[StateTransform]) = Def.inputTask {
     val verbose = cli.CLIParser(verboseFlag).parsed
 
@@ -484,27 +508,15 @@ object StepsPlugin extends AutoPlugin {
 
       val keyName = (key / name).value
 
-      val newState = grouping match {
+      val (finalStatus, asciiTreeWithStatus) = grouping match {
         case StepsGrouping.ByStep =>
           val aggregatedSteps =
             (key / InternalStepsKeys.pendingStepsByStep).value
 
-          startState.log.info(s"Starting $keyName with the following steps:")
-          startState.log.info(ASCIIUtils.pendingStepsByStepToASCIITree(
-            aggregatedSteps,
-            verbose,
-            startState,
-          ))
+          val (skipped, staged) =
+            aggregatedSteps.flatMap(_._2).partition(_.willBeSkipped)
 
-          if (
-            !verbose && aggregatedSteps.exists {
-              case (_, steps) => steps.exists(_.willBeSkipped)
-            }
-          ) {
-            startState.log.info(
-              "One or more steps will be skipped. Re-run command with `-v` option to see details.",
-            )
-          }
+          logStart(keyName, verbose, staged.size, skipped.size, startState)
 
           lazy val showStep: Show[Step] = step =>
             StepsUtils.createShowStep(
@@ -527,29 +539,14 @@ object StepsPlugin extends AutoPlugin {
            * Pending steps derived from the same Step are grouped into the same list.
            * Meanwhile collect completed status and put them in the state.
            *
-           * If one step fails, remaining steps are dropped and '''Left(state)''' is returned.
-           * If all steps succeed '''Right(state)''' is returned.
+           * The end result is one of NoErrors, ContinuedWithErrors or AbortedWithErrors.
            */
-          aggregatedSteps.foldLeft[StateStatus](
+          val finalStatus = aggregatedSteps.foldLeft[StateStatus](
             StateStatus.NoErrors(startState),
           ) {
             case (status, (ciStep, pendingSteps)) if status.continue =>
               lazy val log = status.state.log
               val stagedSteps = pendingSteps.filterNot(_.willBeSkipped)
-              log.info("\n")
-              if (stagedSteps.isEmpty) {
-                log.info(
-                  s"No projects have staged steps for ${ciStep.stepType} ${showStep show ciStep}",
-                )
-              } else {
-                val projectsStr = stagedSteps.size match {
-                  case 1 => "1 project"
-                  case size => s"$size projects"
-                }
-                log.info(
-                  s"Running ${ciStep.stepType} ${showStep show ciStep} for $projectsStr...",
-                )
-              }
 
               // run step for each configured project
               val action = StepsUtils.multiProjectStepToAction(
@@ -562,50 +559,55 @@ object StepsPlugin extends AutoPlugin {
                   status.withState(
                     results.foldLeft(status.state) {
                       case (state, result) =>
-                        setStepStatus(key.key, result, messageBuilders, state)
+                        val newState =
+                          setStepStatus(key.key, result, messageBuilders, state)
+
+                        result match {
+                          case failed: StepResult.Failed =>
+                            EvaluateTask.logIncomplete(
+                              failed.error,
+                              newState,
+                              extracted.structure.streams(newState),
+                            )
+                          case _ => ()
+                        }
+
+                        newState
                     },
                   )
               }
             case (abort, _) =>
               // reached abort state, so drop remaining steps
               abort
-          } match {
-            case StateStatus.NoErrors(state) =>
-              state
-            case StateStatus.ContinuedWithErrors(state) =>
-              state.fail
-            case StateStatus.AbortedWithErrors(state) =>
-              state.fail
           }
+
+          val asciiTreeWithStatus = ASCIIUtils.pendingStepsByStepToASCIITree(
+            aggregatedSteps,
+            verbose,
+            finalStatus.state,
+            finalStatus.state.get(InternalStepsKeys.stepsResultAttr).flatMap(
+              _.get(key.key),
+            ),
+          )
+
+          finalStatus -> asciiTreeWithStatus
+
         case StepsGrouping.ByProject =>
           val aggregatedSteps =
             (key / InternalStepsKeys.pendingStepsByProject).value
 
-          startState.log.info(s"Starting $keyName with the following steps:")
-          startState.log.info(ASCIIUtils.pendingStepsByProjectToASCIITree(
-            aggregatedSteps,
-            verbose,
-            startState,
-          ))
+          val (skipped, staged) =
+            aggregatedSteps.flatMap(_._2).partition(_.willBeSkipped)
 
-          if (
-            !verbose && aggregatedSteps.exists {
-              case (_, steps) => steps.exists(_.willBeSkipped)
-            }
-          ) {
-            startState.log.info(
-              "One or more steps will be skipped. Re-run command with `-v` option to see details.",
-            )
-          }
+          logStart(keyName, verbose, staged.size, skipped.size, startState)
 
           /* Loop over the aggregated steps, run the pending steps and skip others.
            * Pending steps are grouped by project name (outer fold) and run per project (inner fold).
            * Meanwhile collect steps status and put them in the state.
            *
-           * If one step fails, remaining steps are dropped and '''Left(state)''' is returned.
-           * If all steps succeed '''Right(state)''' is returned.
+           * The end result is one of NoErrors, ContinuedWithErrors or AbortedWithErrors.
            */
-          aggregatedSteps.foldLeft[StateStatus](
+          val finalStatus = aggregatedSteps.foldLeft[StateStatus](
             StateStatus.NoErrors(startState),
           ) {
             case ((status), (ProjectRef(_, projectName), pendingSteps))
@@ -649,14 +651,34 @@ object StepsPlugin extends AutoPlugin {
             case (abort, _) =>
               // reached abort status, so drop remaining steps
               abort
-          } match {
-            case StateStatus.NoErrors(state) =>
-              state
-            case StateStatus.ContinuedWithErrors(state) =>
-              state.fail
-            case StateStatus.AbortedWithErrors(state) =>
-              state.fail
           }
+
+          val asciiTreeWithStatus = ASCIIUtils.pendingStepsByProjectToASCIITree(
+            aggregatedSteps,
+            verbose,
+            finalStatus.state,
+            finalStatus.state.get(InternalStepsKeys.stepsResultAttr).flatMap(
+              _.get(key.key),
+            ),
+          )
+
+          finalStatus -> asciiTreeWithStatus
+      }
+
+      // log full steps tree with final status
+      val newState = finalStatus match {
+        case StateStatus.NoErrors(state) =>
+          state.log.info(s"\n$keyName completed successfully:")
+          state.log.info(asciiTreeWithStatus)
+          state
+        case StateStatus.ContinuedWithErrors(state) =>
+          state.log.error(s"\n$keyName completed with errors:")
+          state.log.error(asciiTreeWithStatus)
+          state.fail
+        case StateStatus.AbortedWithErrors(state) =>
+          state.log.error(s"\n$keyName failed with errors:")
+          state.log.error(asciiTreeWithStatus)
+          state.fail
       }
 
       // report status to html file
