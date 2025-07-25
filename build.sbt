@@ -33,7 +33,8 @@ inThisBuild(Seq(
   ci / steps := Seq(
     versionPolicyCheck,
     Test / test,
-    scripted,
+    // TODO: change back after
+    scripted withInput "sbt-steps-by-step/multi-project",
   ),
 ))
 

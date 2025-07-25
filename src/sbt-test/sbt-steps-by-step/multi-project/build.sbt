@@ -26,7 +26,7 @@ inThisBuild(Seq(
     "decrement" forProject foo,
     // add runOnce step without projectFilter to test deduplication
     "show counter".once,
-    +(Test / test),
+    Test / test,
     +publish named "Cross publish",
   ),
 ))
@@ -46,7 +46,7 @@ lazy val bar = (project in file("bar"))
       // add another step before "increment" to see if the steps are sorted correctly
       "show scalaVersion",
       "increment".once forProject LocalRootProject,
-      Test / test,
+      +(Test / test),
       Docker / publish,
       ci / stepsStatusReport withInput "-",
     ),
@@ -57,7 +57,7 @@ lazy val bar = (project in file("bar"))
 lazy val root = (project in file("."))
   .settings(
     name := "root",
-    // this setting does not create a SkippedCIStep, but it does inhibit publishing
+    // this setting does not create a SkippedStep, but it does inhibit publishing
     publishArtifact := false,
     // set different scalaVersion to see if per-project versions are honored
     // note that this will also overwrite crossScalaVersions for this project!
@@ -87,7 +87,7 @@ TaskKey[Unit]("beforeCiSpec") := {
       ),
     ),
     (
-      Test / test,
+      +(Test / test),
       Seq((barRef, None, Nil)),
     ),
     (
@@ -113,7 +113,7 @@ TaskKey[Unit]("beforeCiSpec") := {
       ),
     ),
     (
-      +(Test / test),
+      Test / test,
       Seq(
         (fooRef, None, Nil),
         (rootRef, None, Nil),
@@ -160,7 +160,7 @@ TaskKey[Unit]("afterCiSpec") := {
       ),
     ),
     (
-      Test / test,
+      +(Test / test),
       Seq((barRef, Some(true), Nil)),
     ),
     (
@@ -186,7 +186,7 @@ TaskKey[Unit]("afterCiSpec") := {
       ),
     ),
     (
-      +(Test / test),
+      Test / test,
       Seq(
         (fooRef, Some(true), Nil),
         (rootRef, Some(true), Nil),
