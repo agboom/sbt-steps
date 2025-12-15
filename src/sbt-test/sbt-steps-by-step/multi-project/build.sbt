@@ -16,8 +16,8 @@ addCommandAlias("compileCommand", "compile")
 
 inThisBuild(Seq(
   counter := 0,
-  scalaVersion := "2.13.14",
-  crossScalaVersions := Seq("2.12.18", "2.13.14"),
+  scalaVersion := "2.13.16",
+  crossScalaVersions := Seq("2.12.20", "2.13.16"),
 
   // set ci / steps for entire build to test if this is picked up in subprojects
   ci / steps := Seq(
@@ -52,7 +52,7 @@ lazy val bar = (project in file("bar"))
     ),
   )
   .dependsOn(foo)
-  .aggregate(foo) // to check if steps not run for aggregated projects
+  .aggregate(foo) // to check agrregate behavior (yes for commands, no for tasks)
 
 lazy val root = (project in file("."))
   .settings(
@@ -81,8 +81,16 @@ TaskKey[Unit]("beforeCiSpec") := {
     (
       "increment".once forProject LocalRootProject,
       Seq(
-        (barRef, None, Seq(SkippedMessage.ProjectFilter(LocalRootProject, barRef))),
-        (fooRef, None, Seq(SkippedMessage.ProjectFilter(LocalRootProject, fooRef))),
+        (
+          barRef,
+          None,
+          Seq(SkippedMessage.ProjectFilter(LocalRootProject, barRef)),
+        ),
+        (
+          fooRef,
+          None,
+          Seq(SkippedMessage.ProjectFilter(LocalRootProject, fooRef)),
+        ),
         (rootRef, None, Nil),
       ),
     ),
@@ -154,8 +162,16 @@ TaskKey[Unit]("afterCiSpec") := {
     (
       "increment".once forProject LocalRootProject,
       Seq(
-        (barRef, Some(true), Seq(SkippedMessage.ProjectFilter(LocalRootProject, barRef))),
-        (fooRef, Some(true), Seq(SkippedMessage.ProjectFilter(LocalRootProject, fooRef))),
+        (
+          barRef,
+          Some(true),
+          Seq(SkippedMessage.ProjectFilter(LocalRootProject, barRef)),
+        ),
+        (
+          fooRef,
+          Some(true),
+          Seq(SkippedMessage.ProjectFilter(LocalRootProject, fooRef)),
+        ),
         (rootRef, Some(true), Nil),
       ),
     ),
@@ -165,7 +181,11 @@ TaskKey[Unit]("afterCiSpec") := {
     ),
     (
       Docker / publish,
-      Seq((barRef, Some(true), Seq(SuccessMessage.Published("bar", "0.1.0-SNAPSHOT")))),
+      Seq((
+        barRef,
+        Some(true),
+        Seq(SuccessMessage.Published("bar", "0.1.0-SNAPSHOT")),
+      )),
     ),
     (
       ci / stepsStatusReport withInput "-",
@@ -195,7 +215,11 @@ TaskKey[Unit]("afterCiSpec") := {
     (
       (+publish named "Cross publish"),
       Seq(
-        (fooRef, Some(true), Seq(SuccessMessage.Published("foo", "0.1.0-SNAPSHOT"))),
+        (
+          fooRef,
+          Some(true),
+          Seq(SuccessMessage.Published("foo", "0.1.0-SNAPSHOT")),
+        ),
         (rootRef, Some(true), Nil),
       ),
     ),
@@ -210,7 +234,64 @@ TaskKey[Unit]("afterCiSpec") := {
   )
 }
 
-TaskKey[Unit]("commandSpec", "\"increment\" and \"decrement\" commands must be run for the right projects") := {
+val subZero = Def.mapScope(Scope.replaceThis(Global))
+TaskKey[Unit]("conflictingCrossVersionsSpec", "") := {
+  val barRef = (bar / thisProjectRef).value
+  val allResults = InternalStepsKeys.toTestTuplesByStep(
+    (ci / InternalStepsKeys.pendingStepsByStep).value,
+    (ci / InternalStepsKeys.stepsResult).value,
+  )
+
+  // narrow down step results for brevity
+  val msgs = for {
+    (_, stepResults) <- allResults
+    (_, _, msgs) <- stepResults
+    msg <- msgs.collectFirst {
+      case msg: FailureMessage.Task => msg
+    }
+  } yield msg
+  msgs shouldBe Seq(
+    FailureMessage.Task(
+      subZero(barRef / update),
+      "Conflicting cross-version suffixes in: foo:foo",
+    ),
+  )
+}
+
+TaskKey[Unit]("crossVersionsFallbackSpec", "") := {
+  // foo tests
+  // main classes for 2.13 should exist
+  assertExists((foo / target).value / s"scala-2.13" / "classes" / "Foo.class")
+  // test classes for 2.13 should exist
+  assertExists(
+    (foo / target).value / s"scala-2.13" / "test-classes" / "FooSpec.class",
+  )
+  assertExists(
+    (foo / target).value / s"scala-2.12" / "classes" / "Foo.class",
+  )
+  // test classes should not exist
+  assertExists(
+    (foo / target).value / s"scala-2.12" / "test-classes" / "FooSpec.class",
+  )
+
+  // bar tests
+  // main classes
+  assertExists((bar / target).value / s"scala-2.13" / "classes" / "Bar.class")
+  // main classes for 2.12 should not exist, because crossScalaVersions is Nil
+  assertExists((bar / target).value / s"scala-2.12" / "classes" / "Bar.class")
+  // test classes should not exist, because bar does not depend on test classes
+  assertNotExists(
+    (bar / target).value / s"scala-2.13" / "test-classes" / "BarSpec.class",
+  )
+  assertNotExists(
+    (bar / target).value / s"scala-2.12" / "test-classes" / "BarSpec.class",
+  )
+}
+
+TaskKey[Unit](
+  "commandSpec",
+  "\"increment\" and \"decrement\" commands must be run for the right projects",
+) := {
   // increment command is configured to run only for root
   (root / counter).value shouldBe 1
 
@@ -227,67 +308,93 @@ TaskKey[Unit]("commandSpec", "\"increment\" and \"decrement\" commands must be r
 
 TaskKey[Unit]("rootSpec", "Steps for root project should run correctly") := {
   // main classes for 2.13 should not exist, because of custom scalaVersion
-  assertNotExists((root / target).value / s"scala-2.13" / "classes" / "Root.class")
+  assertNotExists(
+    (root / target).value / s"scala-2.13" / "classes" / "Root.class",
+  )
   // test classes for 2.13 should not exist, because of custom scalaVersion
-  assertNotExists((root / target).value / s"scala-2.13" / "test-classes" / "RootSpec.class")
+  assertNotExists(
+    (root / target).value / s"scala-2.13" / "test-classes" / "RootSpec.class",
+  )
   // main classes for 2.12 should exist, because of custom scalaVersion
   assertExists((root / target).value / s"scala-2.12" / "classes" / "Root.class")
   // test classes for 2.12 should exist, because of custom scalaVersion
-  assertExists((root / target).value / s"scala-2.12" / "test-classes" / "RootSpec.class")
+  assertExists(
+    (root / target).value / s"scala-2.12" / "test-classes" / "RootSpec.class",
+  )
   // jars should not be published, because publishArtifact := false
   assertNotExists(
-    baseDirectory.value / "ivy-repo" / "releases" / s"${name.value}" / s"${name.value}_2.12" / version.value,
+    baseDirectory
+      .value / "ivy-repo" / "releases" / s"${name.value}" / s"${name.value}_2.12" / version.value,
   )
   assertNotExists(
-    baseDirectory.value / "ivy-repo" / "releases" / s"${name.value}" / s"${name.value}_2.13" / version.value,
+    baseDirectory
+      .value / "ivy-repo" / "releases" / s"${name.value}" / s"${name.value}_2.13" / version.value,
   )
 }
 
 TaskKey[Unit]("fooSpec", "Steps for foo project should run correctly") := {
-  // main classes for 2.13 should exist, because of cross compile
+  // main classes for 2.13 should exist
   assertExists((foo / target).value / s"scala-2.13" / "classes" / "Foo.class")
-  // test classes for 2.13 should exist, because of cross test
-  assertExists((foo / target).value / s"scala-2.13" / "test-classes" / "FooSpec.class")
-  // main classes for 2.12 should exist, because of cross compile
+  // test classes for 2.13 should exist
+  assertExists(
+    (foo / target).value / s"scala-2.13" / "test-classes" / "FooSpec.class",
+  )
+  // main classes for 2.12 should exist, because of cross publish
   assertExists((foo / target).value / s"scala-2.12" / "classes" / "Foo.class")
-  // test classes for 2.12 should exist, because of cross test
-  assertExists((foo / target).value / s"scala-2.12" / "test-classes" / "FooSpec.class")
+  // test classes for 2.12 should not exist
+  assertNotExists(
+    (foo / target).value / s"scala-2.12" / "test-classes" / "FooSpec.class",
+  )
+  val base = baseDirectory.value
   // published jar for 2.13 should exist
   assertExists(
-    baseDirectory.value / "ivy-repo" / "releases" / s"${(foo / name).value}" / s"${(foo / name).value}_2.13" / version.value,
+    base / "ivy-repo" / "releases" / s"${(foo / name).value}" / s"${(foo / name).value}_2.13" / version.value,
   )
   // published jar for 2.12 should exist
   assertExists(
-    baseDirectory.value / "ivy-repo" / "releases" / s"${(foo / name).value}" / s"${(foo / name).value}_2.12" / version.value,
+    base / "ivy-repo" / "releases" / s"${(foo / name).value}" / s"${(foo / name).value}_2.12" / version.value,
   )
 }
 
 TaskKey[Unit]("barSpec", "Steps for bar project should run correctly") := {
   // main classes for 2.13 should exist
   assertExists((bar / target).value / s"scala-2.13" / "classes" / "Bar.class")
-  // main classes for 2.12 should not exist, because no cross build
-  assertNotExists((bar / target).value / s"scala-2.12" / "classes" / "Bar.class")
+  // main classes for 2.12 should exist
+  assertExists(
+    (bar / target).value / s"scala-2.12" / "classes" / "Bar.class",
+  )
   // test classes for 2.13 should exist
-  assertExists((bar / target).value / s"scala-2.13" / "test-classes" / "BarSpec.class")
-  // test classes for 2.12 should not exist
-  assertNotExists((bar / target).value / s"scala-2.12" / "test-classes" / "BarSpec.class")
+  assertExists(
+    (bar / target).value / s"scala-2.13" / "test-classes" / "BarSpec.class",
+  )
+  // test classes for 2.12 should exist
+  assertExists(
+    (bar / target).value / s"scala-2.12" / "test-classes" / "BarSpec.class",
+  )
+  val base = baseDirectory.value
   // published jar for 2.13 should exist
   assertExists(
-    baseDirectory.value / "ivy-repo" / "releases" / s"${(bar / name).value}" / s"${(bar / name).value}_2.13" / version.value,
+    base / "ivy-repo" / "releases" / s"${(bar / name).value}" / s"${(bar / name).value}_2.13" / version.value,
   )
   // published jar for 2.12 should not exist, because no cross publish
   assertNotExists(
-    baseDirectory.value / "ivy-repo" / "releases" / s"${(bar / name).value}" / s"${(bar / name).value}_2.12" / version.value,
+    base / "ivy-repo" / "releases" / s"${(bar / name).value}" / s"${(bar / name).value}_2.12" / version.value,
   )
 }
 
-TaskKey[Unit]("resetScalaVersionSpec", "After cross build step scalaVersion should be reset to original") := {
+TaskKey[Unit](
+  "resetScalaVersionSpec",
+  "After cross build step scalaVersion should be reset to original",
+) := {
   (root / scalaVersion).value shouldBe "2.12.18"
-  (foo / scalaVersion).value shouldBe "2.13.14"
-  (bar / scalaVersion).value shouldBe "2.13.14"
+  (foo / scalaVersion).value shouldBe "2.13.16"
+  (bar / scalaVersion).value shouldBe "2.13.16"
 }
 
-TaskKey[Unit]("aggregateCommandSpec", "Aggregate setting should be honored in commands") := {
+TaskKey[Unit](
+  "aggregateCommandSpec",
+  "Aggregate setting should be honored in commands",
+) := {
   assertExists(target.value / s"scala-2.12" / "classes" / "Root.class")
   assertExists((foo / target).value / s"scala-2.13" / "classes" / "Foo.class")
   assertExists((bar / target).value / s"scala-2.13" / "classes" / "Bar.class")
