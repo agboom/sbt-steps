@@ -26,22 +26,26 @@ object CrossUtils {
   /** Set the Scala version for the given projects. Adapted from
     * [[https://github.com/sbt/sbt/blob/f672cb85a9e7c21a17736a34ab95880b7b5dd320/main/src/main/scala/sbt/Cross.scala#L401]]
     */
-  def setScalaVersionForProjects(
-    version: ScalaVersion,
-    projects: Seq[ResolvedReference],
+  def setScalaVersionsForProjects(
+    projectVersions: Seq[(ProjectRef, ScalaVersion, Seq[ScalaVersion])],
     state: State,
   ): State = {
     val extracted = Project.extract(state)
 
-    val newSettings = projects.flatMap { project =>
-      val scope = Scope(Select(project), Zero, Zero, Zero)
-      Seq(scope / scalaVersion := version, scope / scalaHome := None)
+    val newSettings = projectVersions.flatMap {
+      case (project, version, crossVersions) =>
+        val scope = Scope(Select(project), Zero, Zero, Zero)
+        Seq(
+          scope / scalaVersion := version,
+          scope / crossScalaVersions := crossVersions,
+          scope / scalaHome := None,
+        )
     }
 
     val filterKeys: Set[AttributeKey[?]] =
       Set(scalaVersion, scalaHome).map(_.key)
 
-    val projectsContains: Reference => Boolean = projects.toSet.contains
+    val projectsContains: Reference => Boolean = projectVersions.toSet.contains
 
     // Filter out any old scala version settings that were added, this is just for hygiene.
     val filteredRawAppend = extracted.session.rawAppend.filter(_.key match {
@@ -55,6 +59,121 @@ object CrossUtils {
       extracted.session.copy(rawAppend = filteredRawAppend ++ newSettings)
 
     BuiltinCommands.reapply(newSession, extracted.structure, state)
+  }
+
+  /** Adapted from
+    * [[https://github.com/sbt/sbt/blame/424d0eb50db3fc6a4c673501ed5a4de7ca7551f2/main/src/main/scala/sbt/Cross.scala#L271]].
+    *
+    * Behavior is similar to sbt's, except:
+    *   - Passing the projects to switch explicitly
+    *   - Not considering '''scalaHome''' (only use named Scala versions)
+    *   - Forcing Scala versions is not supported
+    *   - Logging is a bit different
+    */
+  def switchScalaVersion(
+    requestedVersion: ScalaVersion,
+    projects: Seq[ProjectRef],
+    state: State,
+    verbose: Boolean,
+  ): State = {
+    def logSwitchInfo(
+      included: Seq[(ProjectRef, ScalaVersion, Seq[ScalaVersion])],
+      excluded: Seq[(ProjectRef, Seq[ScalaVersion])],
+    ) = {
+      included
+        .groupBy(_._2)
+        .foreach {
+          case (selectedVersion, projects) =>
+            val projectStr = projects.size match {
+              case 1 => "1 project"
+              case size => s"$size projects"
+            }
+            // verbose mode logs detailed info
+            if (!verbose) {
+              state.log.info(
+                s"Setting Scala version to $selectedVersion on $projectStr.",
+              )
+            }
+        }
+      if (excluded.nonEmpty && !verbose) {
+        val projectStr = excluded.size match {
+          case 1 => "1 project"
+          case size => s"$size projects"
+        }
+        state.log.info(
+          s"Not switching Scala version on $projectStr, re-run with -v for details.",
+        )
+      }
+
+      def detailedLog(msg: => String) =
+        if (verbose) state.log.info(msg) else state.log.debug(msg)
+
+      def logProject(ref: ProjectRef, scalaVersions: Seq[ScalaVersion]): Unit =
+        detailedLog(
+          s"- ${ref.project} ${scalaVersions.mkString("(", ", ", ")")}",
+        )
+      if (included.nonEmpty) {
+        detailedLog("Switching Scala version on:")
+        included.foreach { case (project, scalaVersion, scalaVersions) =>
+          logProject(
+            project,
+            scalaVersions.map { v =>
+              if (v == scalaVersion) s"*$v*" else v
+            },
+          )
+        }
+      }
+      if (excluded.nonEmpty) {
+        detailedLog("Not switching Scala version on:")
+        excluded.foreach { case (project, scalaVersions) =>
+          logProject(project, scalaVersions)
+        }
+      }
+    }
+
+    val extracted = Project.extract(state)
+    val projectsAndScalaVersion = projects
+      .map { proj => proj -> crossVersions(extracted, proj) }
+      .map {
+        case (project, scalaVersions) =>
+          val selector = SemanticSelector(requestedVersion)
+          scalaVersions.filter(v =>
+            selector.matches(VersionNumber(v)),
+          ) match {
+            case Seq(version) =>
+              (project, Some(version), scalaVersions)
+            case Nil =>
+              // fall back to bincompat version from `crossScalaVersions` like sbt
+              val svOpt = scalaVersions.find(
+                CrossVersion.isScalaBinaryCompatibleWith(
+                  newVersion = requestedVersion,
+                  _,
+                ),
+              )
+              svOpt.foreach { sv =>
+                state.log.info(
+                  s"Falling back '${project.project}' to listed '$sv' instead of unlisted '$requestedVersion'",
+                )
+              }
+              (project, svOpt, scalaVersions)
+            case multiple =>
+              throw new MessageOnlyException(
+                s"Multiple crossScalaVersions matched '$requestedVersion' in '${project.project}': ${multiple.mkString(", ")}",
+              )
+          }
+      }
+
+    val included = projectsAndScalaVersion.collect {
+      case (project, Some(version), scalaVersions) =>
+        (project, version, scalaVersions)
+    }
+    val excluded = projectsAndScalaVersion.collect {
+      case (project, None, scalaVersions) => project -> scalaVersions
+    }
+
+    logSwitchInfo(included, excluded)
+
+    setScalaVersionsForProjects(included, state)
   }
 
   /** Run an action for the cross Scala versions of multiple projects.
@@ -76,6 +195,7 @@ object CrossUtils {
     */
   def multiProjectCrossBuildToAction[T](
     pendingSteps: Seq[PendingStep],
+    verbose: Boolean,
     action: Seq[PendingStep] => StateStatus => MultiStepResults,
   ): StateStatus => MultiStepResults = { startState: StateStatus =>
     val extracted = Project.extract(startState.state)
@@ -99,22 +219,19 @@ object CrossUtils {
     val results = stepsByVersion.foldLeft(MultiStepResults(startState, Nil)) {
       case (MultiStepResults(status, stepResults), (version, stepsForVersion))
           if status.continue =>
-        val stagedSteps = stepsForVersion.filterNot(_.willBeSkipped)
-        val projectStr = if (stepsForVersion.size == 1) {
-          "1 project"
-        } else {
-          s"${stepsForVersion.size} projects"
-        }
-        status.state.log.info(
-          s"Setting Scala version to $version on $projectStr...",
+        lazy val stagedSteps = stepsForVersion.filterNot(_.willBeSkipped)
+        val projectsToSwitch = resolveDependencies(
+          stagedSteps.map(_.project),
+          extracted,
         )
         // run the action only for the steps that have the configured version
         val results = action(stepsForVersion)(
           status.withState(
-            CrossUtils.setScalaVersionForProjects(
+            switchScalaVersion(
               version,
-              stagedSteps.map(_.project),
+              projectsToSwitch,
               status.state,
+              verbose,
             ),
           ),
         )
@@ -161,6 +278,31 @@ object CrossUtils {
       status = results.status.withState(finalState),
       stepResults = crossStepResults,
     )
+  }
+
+  /**
+    * Recursively get inter-project dependencies of the given projects.
+    * @return List of unique projects that transitively depend on the given projects.
+    */
+  def resolveDependencies(
+    projects: Seq[ProjectRef],
+    extracted: Extracted,
+  ): Seq[ProjectRef] = {
+    def findDependencies(project: ProjectRef): Seq[ProjectRef] = {
+      project :: (extracted.structure
+        .allProjects(project.build)
+        .find(_.id == project.project) match {
+        case Some(resolved) =>
+          resolved
+            .dependencies
+            .toList
+            .map(_.project)
+            .flatMap(findDependencies)
+        case None => Nil
+      })
+    }
+
+    projects.flatMap(findDependencies).distinct
   }
 
 }

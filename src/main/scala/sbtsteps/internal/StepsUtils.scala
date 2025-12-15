@@ -378,6 +378,7 @@ object StepsUtils {
     if (pendingStep.crossBuild) {
       CrossUtils.multiProjectCrossBuildToAction(
         Seq(pendingStep),
+        verbose,
         stepAction,
       )(stateStatus)
     } else {
@@ -414,6 +415,7 @@ object StepsUtils {
     if (step.crossBuild) {
       CrossUtils.multiProjectCrossBuildToAction(
         pendingSteps,
+        verbose,
         stepAction,
       )
     } else {
