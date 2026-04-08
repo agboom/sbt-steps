@@ -1,8 +1,13 @@
 # sbt steps
 
-Configure, run and share a list of tasks and commands to run in your sbt projects. Run the
-steps from the sbt shell with a single command. Generate reports in HTML or in ASCII
-format. Use in GitHub Actions or any other CI environment.
+Streamline your CI using the power of sbt.
+
+With sbt-steps you will:
+
+- ⚡ Supercharge your CI with [minimal setup and configuration](#enable-cistepsplugin).
+- 📊 Generate [summaries in HTML or ASCII](#demo) to see what happened in your builds at a glance.
+- 🛠️ Streamline your build by [declaring](#customize-steps) and [reusing steps](#share-steps-between-subprojects) or by creating your [own steps plugin][create-steps-plugin].
+- 🤝 Make your project integrate well with any CI system, including [GitHub Actions](#with-github-actions).
 
 ## Demo
 
@@ -14,7 +19,7 @@ Here are two report examples after running `ci` using `CIStepsPlugin`:
   </tr>
   <tr valign=top>
     <td height=526>
-      <p><code><b>sbt:root> ci/stepsStatusReport -</b></code></p>
+      <p><code><b>sbt:root> ci/stepsStatusReport --verbose -</b></code></p>
       <sup>
         <table><tr height=30><td colspan=5 width=400>(<b><code>+Test / test</code></b>) Cross test</td></tr><tr height=30><td title="succeeded" width=40>:white_check_mark:</td><td colspan=2><code>+bar / Test / test</code></td></tr><tr height=30><td title="succeeded" width=40>:white_check_mark:</td><td colspan=2><code>+foo / Test / test</code></td></tr><tr height=30><td title="succeeded" width=40>:white_check_mark:</td><td colspan=2><code>+root / Test / test</code></td></tr><tr height=30><td colspan=5 width=400>(<b><code>+publishLocal</code></b>) Cross publish</td></tr><tr height=30><td title="succeeded" width=40>:white_check_mark:</td><td colspan=2><code>+bar / publishLocal</code></td></tr><tr height=30><td></td><td width=40>:green_circle:</td><td>Successfully published bar <code>0.1.0-SNAPSHOT</code></td></tr><tr height=30><td title="succeeded" width=40>:white_check_mark:</td><td colspan=2><code>+foo / publishLocal</code></td></tr><tr height=30><td></td><td width=40>:green_circle:</td><td>Successfully published foo <code>0.1.0-SNAPSHOT</code></td></tr><tr height=30><td title="skipped" width=40>:white_large_square:</td><td colspan=2><code>+root / publishLocal</code></td></tr><tr height=30><td></td><td width=40>:white_circle:</td><td><code>publishLocal / skip</code> is set to true</td></tr><tr height=30><td colspan=5 width=400>(<b><code>Compile / unidoc</code></b>) Generate unified Scaladoc</td></tr><tr height=30><td title="failed" width=40>:red_square:</td><td colspan=2><code>root / Compile / unidoc</code></td></tr><tr height=30><td></td><td width=40>:x:</td><td>(<code>Scalaunidoc / doc</code>) Scaladoc generation failed</td></tr></table>  
     </sup>
@@ -219,24 +224,25 @@ sbt:bar > ci/stepsTree
 [info]     +-task: foo / Compile / unidoc
 ```
 
+The tree shows the order in which the steps will actually be run. Project steps with the
+same task are grouped together, while the configured order of tasks is kept in tact,
+mimicking sbt aggregation and ordering. This also increases performance by enabling
+parallel execution. For example, in this build all tests are run in parallel before moving
+on to publishing and only if all test tasks have succeeded. 
+
 > [!IMPORTANT]
 > Task steps do not run for project aggregates configured by `aggregate()`. Instead, they
 > are run for the subproject they are configured on. To share steps between subprojects,
 > see the next section. 
 
 > [!TIP]
+> If prefer to run your steps grouped by project instead of by step, use the
+> [`stepsGrouping` setting](#change-the-steps-grouping).
+
+> [!TIP]
 > Because the `steps` setting is a list, they can also be appended (`ci/steps += Compile /
 > unidoc`) or removed (`ci/steps -= publish`). Do always check the resulting
 > `ci/stepsTree` after customizing.
-
-> [!NOTE]
-> Notice that the tree shows the steps in a different grouping than configured in the
-> build definition. The tree shows the order in which the steps will actually be run.
-> Project steps with the same step are grouped together, while the configured order is
-> kept in tact. This mimics sbt aggregation and prevents steps to be run in an unexpected
-> order. For example, in this build all test must succeed before continuing to publish. If
-> you prefer per project grouping, use the [`stepsGrouping`
-> setting](#change-the-steps-grouping).
 
 ### Share steps between subprojects
 
@@ -330,20 +336,14 @@ sbt:root> ci/stepsTree
 [info]     +-task: +root / publish
 ```
 
+Like regular steps, cross build steps mimic sbt cross build aggregation and are run in
+parallel like other tasks. This means that for each cross Scala version, all project tasks
+are run before going to the next cross Scala version. In the example above, this results
+the following order: `++ 3.3.4; foo/test; root/test; ++ 2.13.15; foo/test; root/test`.
+
 > [!NOTE]
 > Cross build steps can be safely declared without setting `crossScalaVersions`, because
 > `scalaVersion` is used by default.
-
-> [!IMPORTANT] 
-> For performance reasons, cross build steps mimic sbt cross build aggregation. This means
-> that for each cross Scala version, all project tasks are run before going to the next
-> cross Scala version. In the example above, this results the following order: `++ 3.3.4;
-> foo/test; root/test; ++ 2.13.15; foo/test; root/test`. This behavior may lead to
-> incomplete steps when its subsequent step has failed, which can be confusing. Even
-> though this is the intended behavior, we may need to look into making this more clear.
-> [This scripted test] can be used to test the performance limits.
-
-[This scripted test]: src/sbt-test/sbt-steps-by-step/cross-source
 
 ### Use input task steps
 
@@ -550,6 +550,12 @@ lazy val myLibrary = (project in file("."))
 The settings above will run `+test` for and proceed to `+publish` regardless of its
 outcome.
 
+If a task step is declared for more than one project, they will be joined to run in
+parallel as explained [above](#customize-steps). A task like `+test` will always finish
+for all projects and Scala versions, whether `.continueOnError` is enabled or not. This
+mimics sbt aggregation and strikes the right balance between functionality and
+performance.
+
 > [!IMPORTANT]
 > A failed step will always result in a failure status of the step and the entire run,
 > whether `.continueOnError` is enabled or not.
@@ -601,6 +607,10 @@ This configuration will result in the following steps sequence:
 > [!WARNING]
 > If `+foo / Test / test` fails the foo project is not published, but the root project is.
 > Only use this setting if you accept this behavior.
+
+> [!WARNING]
+> With `StepsGrouping.ByProject`, parallel execution of tasks is not possible. Only use
+> this setting for sequential tasks.
 
 > [!CAUTION]
 > `Global / stepsGrouping := StepsGrouping.ByProject` will set the grouping for all
