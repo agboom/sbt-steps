@@ -2,14 +2,19 @@ import com.typesafe.tools.mima.core.*
 
 inThisBuild(Seq(
   organization := "io.github.agboom",
-  homepage := Some(url(s"https://github.com/${gitHubOrganization.value}/${gitHubRepository.value}")),
+  homepage := Some(url(
+    s"https://github.com/${gitHubOrganization.value}/${gitHubRepository.value}",
+  )),
   licenses := List(
     "Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0"),
   ),
   scmInfo := {
     val org = gitHubOrganization.value
     val repo = gitHubRepository.value
-    Some(ScmInfo(url(s"https://github.com/$org/$repo"), s"scm:git@github.com:$org/$repo.git"))
+    Some(ScmInfo(
+      url(s"https://github.com/$org/$repo"),
+      s"scm:git:git@github.com:$org/$repo.git",
+    ))
   },
   developers := List(
     Developer(
@@ -29,7 +34,9 @@ inThisBuild(Seq(
   scriptedBufferLog := false,
   versionScheme := Some(VersionScheme.SemVerSpec),
   scalacOptions := Settings.compilerOptions,
-  versionPolicyIgnoredInternalDependencyVersions := Some("^\\d+\\.\\d+\\.\\d+\\+\\d+".r),
+  versionPolicyIgnoredInternalDependencyVersions := Some(
+    "^\\d+\\.\\d+\\.\\d+\\+\\d+".r,
+  ),
   ci / steps := Seq(
     versionPolicyCheck,
     Test / test,
@@ -48,7 +55,9 @@ lazy val sbtSteps = project.in(file("."))
       publishLocal,
     ).dependOn.value,
     // internal package does not have compatibility guarantees, so we exclude it
-    mimaBinaryIssueFilters += ProblemFilters.exclude[Problem]("sbtsteps.internal.*"),
+    mimaBinaryIssueFilters += ProblemFilters.exclude[Problem](
+      "sbtsteps.internal.*",
+    ),
     mimaPreviousArtifacts := {
       val currentVersion = version.value
       val previousVersion = sbtrelease.Version(currentVersion)
@@ -59,7 +68,7 @@ lazy val sbtSteps = project.in(file("."))
         Defaults.sbtPluginExtra(
           organization.value %% name.value % previousVersion,
           sbtBinaryVersion.value,
-          scalaBinaryVersion.value
+          scalaBinaryVersion.value,
         ),
       )
     },
