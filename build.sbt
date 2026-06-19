@@ -42,7 +42,7 @@ lazy val sbtSteps = project.in(file("."))
   .enablePlugins(SbtPlugin)
   .settings(
     name := "sbt-steps",
-    libraryDependencies += "org.scalatest" %% "scalatest" % "3.2.19" % Test,
+    libraryDependencies += "org.scalatest" %% "scalatest" % "3.2.20" % Test,
     scriptedDependencies := Seq(
       sbtTestkit / publishLocal,
       publishLocal,
