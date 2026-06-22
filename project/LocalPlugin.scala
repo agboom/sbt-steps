@@ -121,7 +121,7 @@ object LocalPlugin extends AutoPlugin {
           )
         if (
           Process(
-            "git" :: "commit" :: "-m" :: "Reset compatibility intention" :: Nil,
+            "git" :: "commit" :: "-m" :: "build: [skip ci] reset compatibility intention" :: Nil,
           ) ! log != 0
         ) {
           throw new MessageOnlyException("Failed to commit compatibility.sbt")
