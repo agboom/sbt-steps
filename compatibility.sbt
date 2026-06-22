@@ -4,4 +4,4 @@
  * Every CI build, the binary compatibility is checked against the intention.
  * During release, the released version is checked against the intention.
  */
-ThisBuild / versionPolicyIntention := Compatibility.BinaryAndSourceCompatible
+ThisBuild / versionPolicyIntention := Compatibility.None
